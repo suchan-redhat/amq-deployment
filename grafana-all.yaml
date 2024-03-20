@@ -35,6 +35,13 @@ spec:
           mountPath: /etc/grafana/provisioning/datasources/datasource.yaml
           readOnly: true
           subPath: datasource.yaml
+        resources:
+          limits:
+            memory: 2Gi
+            cpu: 1
+          requests:
+            memory: 2Gi
+            cpu: 1
         readinessProbe:
           httpGet:
             path: /api/health
