@@ -1,6 +1,31 @@
 # Assume pvc named grafana-data is exist
 # Assume sa named grafana-serviceaccount is exist
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-config
+  namespace: VAR.NAMESPACE
+data:
+  datasource.yaml: |
+    apiVersion: 1
+
+    datasources:
+    - name: Prometheus
+      type: prometheus
+      url: https://thanos-querier.openshift-monitoring.svc.cluster.local:9091
+      access: proxy
+      basicAuth: false
+      withCredentials: false
+      isDefault: true
+      jsonData:
+        timeInterval: 5s
+        tlsSkipVerify: true
+        httpHeaderName1: "Authorization"
+      secureJsonData:
+        httpHeaderValue1: "Bearer VAR.GRAFANA.SA.TOKEN"
+      editable: true
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
