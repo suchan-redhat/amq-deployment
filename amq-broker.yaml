@@ -1,0 +1,94 @@
+---
+kind: ActiveMQArtemis
+apiVersion: broker.amq.io/v2alpha5
+metadata:
+  name: amq-broker
+  application: amq-broker-app
+  namespace: VAR.NAMESPACE
+spec:
+  acceptors:
+    - port: 61616
+      name: local-acceptor
+      protocols: all
+      expose: true
+    - port: 61617
+      name: acceptor
+      protocols: all
+      expose: true
+      sslEnabled: true
+      sslSecret: amq-acceptor-certs
+  deploymentPlan:
+    enableMetricsPlugin: true
+    resources:
+      limits:
+        cpu:  VAR.AMQBROKERBROKER.CPU
+        memory: VAR.AMQBROKERBROKER.MEMORY
+      requests:
+        cpu: VAR.AMQBROKERBROKER.CPU
+        memory: VAR.AMQBROKERBROKER.MEMORY
+    image: placeholder
+    size: 2
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchExpressions:
+            - key: application
+              operator: In
+              values:
+              - amq-broker-app
+          topologyKey: kubernetes.io/hostname
+    requireLogin: true
+    persistenceEnabled: true
+    journalType: nio
+    messageMigration: false
+    managementRBACEnabled: true
+    storage:
+      size: 1Gi
+
+---
+apiVersion: broker.amq.io/v1alpha1
+kind: ActiveMQArtemisSecurity
+metadata:
+  name: ex-artemis-test1
+  namespace: VAR.NAMESPACE
+spec:
+  loginModules:
+    propertiesLoginModules:
+      - name: prop-module
+        users:
+          - name: user1
+            password: password
+            roles:
+              - root
+          - name: user2
+            password: password
+            roles:
+              - user
+  securityDomains:
+    brokerDomain:
+      loginModules:
+        - flag: sufficient
+          name: prop-module
+      name: activemq
+  securitySettings:
+    broker:
+      - match: '#'
+        permissions:
+          - operationType: send
+            roles:
+              - root
+              - user
+          - operationType: createAddress
+            roles:
+              - root
+          - operationType: createDurableQueue
+            roles:
+              - root
+          - operationType: createNonDurableQueue
+            roles:
+              - root
+          - operationType: consume
+            roles:
+              - root
+              - user

@@ -1,0 +1,105 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: camel-kafka2mongodb
+    app.kubernetes.io/component: camel-kafka2mongodb
+    app.kubernetes.io/instance: camel-kafka2mongodb
+  name: camel-kafka2mongodb
+  namespace: VAR.NAMESPACE
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      deployment: camel-kafka2mongodb
+  template:
+    metadata:
+      labels:
+        deployment: camel-kafka2mongodb
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: deployment
+                operator: In
+                values:
+                - camel-kafka2mongodb
+            topologyKey: kubernetes.io/hostname
+      containers:
+      - image: VAR.IMAGE.KAFKA2MONGODB
+        name: camel-kafka2mongodb
+        ports:
+        - containerPort: 8778
+          protocol: TCP
+          name: jolokia
+        - containerPort: 9779
+          protocol: TCP
+          name: web
+        env:
+          - name: AB_JOLOKIA_AUTH_OPENSHIFT
+            value: 'false'
+          - name: AB_JOLOKIA_PASSWORD_RANDOM
+            value: 'false'
+          - name: AB_JOLOKIA_OPTS
+            value: 'useSslClientAuthentication=false,protocol=https'
+        resources: 
+          limits:
+            memory: VAR.KAFKA2MONGODB.MEMORY
+            cpu: VAR.KAFKA2MONGODB.CPU
+          requests:
+            cpu: VAR.KAFKA2MONGODB.CPU
+            memory: VAR.KAFKA2MONGODB.MEMORY
+        volumeMounts:
+        - mountPath: /deployments/config/application.properties
+          name: camel-kafka2mongodb-config
+          subPath: application.properties
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: camel-kafka2mongodb-config
+        name: camel-kafka2mongodb-config
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: camel-kafka2mongodb-metrics
+  namespace: VAR.NAMESPACE
+  labels:
+    team: fuse
+spec:
+  selector:
+    matchLabels:
+      deployment: camel-kafka2mongodb
+  namespaceSelector:
+    matchNames:
+      - VAR.NAMESPACE
+  podMetricsEndpoints:
+  - path: /
+    port: web
+---
+apiVersion: v1
+data:
+  application.properties: |
+    # Keep Camel Route Alive
+    camel.springboot.main-run-controller = true
+
+    spring.application.name=camel-kafka2mongodb
+
+    mongoServerAddress=VAR.KAFKA2MONGODB.MONGODB.URL
+    mongoUser=VAR.KAFKA2MONGODB.MONGODB.USERNAME
+    mongoPassword=VAR.KAFKA2MONGODB.MONGODB.PASSWORD
+    mongoDatabase=test
+    mongoCollection=test
+    
+    topics=kafka2mongodb
+    camel.component.kafka.configuration.brokers=amq-streams-kafka-bootstrap:9092
+    camel.component.kafka.configuration.security-protocol=SASL_PLAINTEXT
+    camel.component.kafka.configuration.sasl-mechanism=SCRAM-SHA-512
+    camel.component.kafka.configuration.sasl-jaas-config=VAR.KAFKA2MONGODB.SASL_JAAS_CONFIG.VALUE
+kind: ConfigMap
+metadata:
+  name: camel-kafka2mongodb-config
+  namespace: VAR.NAMESPACE

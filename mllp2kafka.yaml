@@ -1,0 +1,119 @@
+---
+apiVersion: v1
+data:
+  application.properties: |
+    logging.level.org.apache.camel.component.mllp.MllpConfiguration=WARN
+    camel.component.mllp.configuration.hostname=0.0.0.0
+    camel.component.mllp.configuration.port=4650
+    camel.component.mllp.default-charset=utf-8
+    topics=tsh-aed-mllp-discrete-data-topic
+    camel.component.kafka.configuration.brokers=amq-streams-kafka-bootstrap:9092
+    camel.component.kafka.configuration.security-protocol=SASL_PLAINTEXT
+    camel.component.kafka.configuration.sasl-mechanism=SCRAM-SHA-512
+    camel.component.kafka.configuration.sasl-jaas-config=VAR.MLLP2KAFKA.SASL_JAAS_CONFIG.VALUE
+    camel.component.kafka.brokers=amq-streams-kafka-bootstrap:9092
+    camel.component.kafka.security-protocol=SASL_PLAINTEXT
+    camel.component.kafka.sasl-mechanism=SCRAM-SHA-512
+    camel.component.kafka.sasl-jaas-config=VAR.MLLP2KAFKA.SASL_JAAS_CONFIG.VALUE
+kind: ConfigMap
+metadata:
+  name: camel-mllp-config
+  namespace: VAR.NAMESPACE
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: camel-mllp2kafka
+  namespace: VAR.NAMESPACE
+spec:
+  selector:
+    matchLabels:
+      deployment: camel-mllp2kafka
+  template:
+    metadata:
+      labels:
+        deployment: camel-mllp2kafka
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: deployment
+                operator: In
+                values:
+                - camel-mllp2kafka
+            topologyKey: kubernetes.io/hostname
+      containers:
+      - env:
+        - name: AB_JOLOKIA_AUTH_OPENSHIFT
+          value: "false"
+        - name: AB_JOLOKIA_PASSWORD_RANDOM
+          value: "false"
+        - name: AB_JOLOKIA_OPTS
+          value: useSslClientAuthentication=false,protocol=https
+        image: VAR.IMAGE.MLLP2KAFKA
+        name: camel-mllp2kafka
+        ports:
+        - containerPort: 8778
+          name: jolokia
+          protocol: TCP
+        - containerPort: 9779
+          name: web
+          protocol: TCP
+        - containerPort: 4650
+          protocol: TCP
+        resources: 
+          limits:
+            memory: VAR.MLLP2KAFKA.MEMORY
+            cpu: VAR.MLLP2KAFKA.CPU
+          requests:
+            cpu: VAR.MLLP2KAFKA.CPU
+            memory: VAR.MLLP2KAFKA.MEMORY
+        volumeMounts:
+        - mountPath: /deployments/config/application.properties
+          name: camel-mllp-config
+          subPath: application.properties
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: camel-mllp-config
+        name: camel-mllp-config
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: camel-mllp2kafka-metrics
+  namespace: VAR.NAMESPACE
+  labels:
+    team: fuse
+spec:
+  selector:
+    matchLabels:
+      deployment: camel-mllp2kafka
+  namespaceSelector:
+    matchNames:
+      - VAR.NAMESPACE
+  podMetricsEndpoints:
+  - path: /
+    port: web
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: camel-mllp2kafka
+    app.kubernetes.component: camel-mllp2kafka
+    app.kubernetes.instance: camel-mllp2kafka
+  name: camel-mllp2kafka
+  namespace: VAR.NAMESPACE
+spec:
+  ports:
+    - port: 4650
+      protocol: TCP
+      targetPort: 4650
+      nodePort: 38522
+  selector:
+    deployment: camel-mllp2kafka
+  type: NodePort

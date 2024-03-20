@@ -1,0 +1,455 @@
+---
+apiVersion: kafka.strimzi.io/v1beta1
+kind: KafkaUser
+metadata:
+  name: http-bridge-user
+  labels:
+    strimzi.io/cluster: amq-streams
+  namespace: VAR.NAMESPACE
+spec:
+  authentication:
+    type: scram-sha-512
+  authorization:
+    acls:
+      - resource:
+          type: topic
+          name: '*'
+          patternType: literal
+        operation: Read
+        host: '*'
+      - resource:
+          type: topic
+          name: '*'
+          patternType: literal
+        operation: Describe
+        host: '*'
+      - resource:
+          type: group
+          name: '*'
+          patternType: literal
+        operation: Read
+        host: '*'
+      - resource:
+          type: topic
+          name: '*'
+          patternType: literal
+        operation: Write
+        host: '*'
+      - resource:
+          type: topic
+          name: '*'
+          patternType: literal
+        operation: Create
+        host: '*'
+      - resource:
+          type: topic
+          name: '*'
+          patternType: literal
+        operation: Describe
+        host: '*'
+    type: simple
+
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaBridge
+metadata:
+  name: http-bridge
+  namespace: VAR.NAMESPACE
+spec:
+  resources:
+    limits:
+      memory: VAR.HTTPBRIDGEBRIDGE.MEMORY
+      cpu: VAR.HTTPBRIDGEBRIDGE.CPU
+    requests:
+      cpu: VAR.HTTPBRIDGEBRIDGE.CPU
+      memory: VAR.HTTPBRIDGEBRIDGE.MEMORY
+  bootstrapServers: 'amq-streams-kafka-bootstrap:9092'
+  http:
+    port: 8080
+  authentication:
+    username: http-bridge-user
+    type: scram-sha-512
+    passwordSecret:
+      password: password
+      secretName: http-bridge-user
+  replicas: 1
+
+---
+apiVersion: apps.openshift.io/v1
+kind: DeploymentConfig
+metadata:
+  labels:
+    app: nginx-external
+  name: nginx-external
+  namespace: VAR.NAMESPACE
+spec:
+  replicas: 1
+  
+  selector:
+    app: nginx-external
+    deploymentconfig: nginx-external
+  template:
+    metadata:
+      labels:
+        app: nginx-external
+        deploymentconfig: nginx-external
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: deploymentconfig
+                operator: In
+                values:
+                - nginx-external
+            topologyKey: kubernetes.io/hostname
+      containers:
+        - image: VAR.IMAGE.HTTPBRIDGE.NGINX
+          args:
+            - '-g'
+            - 'daemon off;'
+          command:
+            - /opt/rh/rh-nginx112/root/usr/sbin/nginx
+          name: nginx-external
+          resources:
+            limits:
+              memory: VAR.HTTPBRIDGENGINX.MEMORY
+              cpu: VAR.HTTPBRIDGENGINX.CPU
+            requests:
+              cpu: VAR.HTTPBRIDGENGINX.CPU
+              memory: VAR.HTTPBRIDGENGINX.MEMORY
+          ports:
+            - containerPort: 8443
+              protocol: TCP
+            - containerPort: 8080
+              protocol: TCP
+          volumeMounts:
+            - mountPath: /etc/nginx/.htpasswd
+              name: nginx-basic-auth-creds
+              subPath: .htpasswd
+            - mountPath: /etc/nginx/nginx.conf
+              name: nginx-config
+              subPath: nginx.conf
+      volumes:
+        - name: nginx-basic-auth-creds
+          secret:
+            defaultMode: 420
+            secretName: external-nginx-basic-auth-creds
+        - configMap:
+            defaultMode: 420
+            name: external-nginx-config
+          name: nginx-config
+  test: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: nginx-external
+  name: http-bridge-external
+  namespace: VAR.NAMESPACE
+spec:
+  ports:
+    - name: 8080-tcp
+      port: 8080
+      protocol: TCP
+      targetPort: 8080
+    - name: 8443-tcp
+      port: 8443
+      protocol: TCP
+      targetPort: 8443
+  selector:
+    app: nginx-external
+    deploymentconfig: nginx-external
+  type: ClusterIP
+---
+apiVersion: v1
+data:
+  nginx.conf: |
+    worker_processes auto;
+
+    error_log /var/log/nginx/error.log;
+    pid /run/nginx.pid;
+
+    events {
+        worker_connections 1024;
+    }
+
+    http {
+
+
+        log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                          '$status $body_bytes_sent "$http_referer" '
+                          '"$http_user_agent" "$http_x_forwarded_for"';
+
+
+        sendfile            on;
+        tcp_nopush          on;
+        tcp_nodelay         on;
+        keepalive_timeout   65;
+        types_hash_max_size 2048;
+
+        include             /etc/nginx/mime.types;
+        default_type        application/octet-stream;
+        resolver dns-default.openshift-dns.svc.cluster.local valid=10s;
+
+        server {
+            listen       8080 default_server;
+            server_name  _;
+
+            location / {
+              auth_basic "Restricted Content";
+              auth_basic_user_file /etc/nginx/.htpasswd;
+              set $bridge http-bridge-bridge-service.VAR.NAMESPACE.VAR.WILDCARDSUBDOMAIN;
+              proxy_pass http://$bridge:8080;
+            }
+
+        }
+
+    }
+kind: ConfigMap
+metadata:
+  name: external-nginx-config
+  namespace: VAR.NAMESPACE
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  annotations:
+    openshift.io/host.generated: 'true'
+  labels:
+    app: nginx-external
+  name: http-bridge-external-dev
+  namespace: VAR.NAMESPACE
+spec:
+  host: http-bridge-external-VAR.NAMESPACE.VAR.WILDCARDSUBDOMAIN
+  port:
+    targetPort: 8080-tcp
+  tls:
+    termination: edge
+  to:
+    kind: Service
+    name: http-bridge-external
+    weight: 100
+  wildcardPolicy: None
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  annotations:
+    openshift.io/host.generated: 'true'
+  labels:
+    app: nginx-external
+  name: http-bridge-external
+  namespace: VAR.NAMESPACE
+spec:
+  host: http-bridge-external-VAR.NAMESPACE.VAR.WILDCARDSUBDOMAIN
+  port:
+    targetPort: 8080-tcp
+  tls:
+    termination: edge
+  to:
+    kind: Service
+    name: http-bridge-external
+    weight: 100
+  wildcardPolicy: None
+
+---
+apiVersion: apps.openshift.io/v1
+kind: DeploymentConfig
+metadata:
+  labels:
+    app: nginx-internal
+  name: nginx-internal
+  namespace: VAR.NAMESPACE
+spec:
+  replicas: 1
+  selector:
+    app: nginx-internal
+    deploymentconfig: nginx-internal
+  template:
+    metadata:
+      labels:
+        app: nginx-internal
+        deploymentconfig: nginx-internal
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: deplyoymentconfig
+                operator: In
+                values:
+                - nginx-intenral
+            topologyKey: kubernetes.io/hostname
+      containers:
+        - image: VAR.IMAGE.HTTPBRIDGE.NGINX
+          args:
+            - '-g'
+            - 'daemon off;'
+          command:
+            - /opt/rh/rh-nginx112/root/usr/sbin/nginx
+          name: nginx-internal
+          resources:
+            limits:
+              memory: VAR.HTTPBRIDGENGINX.MEMORY
+              cpu: VAR.HTTPBRIDGENGINX.CPU
+            requests:
+              cpu: VAR.HTTPBRIDGENGINX.CPU
+              memory: VAR.HTTPBRIDGENGINX.MEMORY
+          ports:
+            - containerPort: 8443
+              protocol: TCP
+            - containerPort: 8080
+              protocol: TCP
+          resources: {}
+          volumeMounts:
+            - mountPath: /etc/nginx/.htpasswd
+              name: nginx-basic-auth-creds
+              subPath: .htpasswd
+            - mountPath: /etc/nginx/nginx.conf
+              name: nginx-config
+              subPath: nginx.conf
+      volumes:
+        - name: nginx-basic-auth-creds
+          secret:
+            defaultMode: 420
+            secretName: internal-nginx-basic-auth-creds
+        - configMap:
+            defaultMode: 420
+            name: internal-nginx-config
+          name: nginx-config
+  test: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: nginx-internal
+  name: http-bridge-internal
+  namespace: VAR.NAMESPACE
+spec:
+  ports:
+    - name: 8080-tcp
+      port: 8080
+      protocol: TCP
+      targetPort: 8080
+    - name: 8443-tcp
+      port: 8443
+      protocol: TCP
+      targetPort: 8443
+  selector:
+    app: nginx-internal
+    deploymentconfig: nginx-internal
+  type: ClusterIP
+---
+apiVersion: v1
+data:
+  nginx.conf: |
+    worker_processes auto;
+
+    error_log /var/log/nginx/error.log;
+    pid /run/nginx.pid;
+
+    events {
+        worker_connections 1024;
+    }
+
+    http {
+
+
+        log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                          '$status $body_bytes_sent "$http_referer" '
+                          '"$http_user_agent" "$http_x_forwarded_for"';
+
+
+        sendfile            on;
+        tcp_nopush          on;
+        tcp_nodelay         on;
+        keepalive_timeout   65;
+        types_hash_max_size 2048;
+
+        include             /etc/nginx/mime.types;
+        default_type        application/octet-stream;
+        resolver dns-default.openshift-dns.svc.cluster.local valid=10s;
+
+        server {
+            listen       8080 default_server;
+            server_name  _;
+
+            location / {
+              auth_basic "Restricted Content";
+              auth_basic_user_file /etc/nginx/.htpasswd;
+              set $bridge http-bridge-bridge-service.VAR.NAMESPACE.svc.cluster.local;
+              proxy_pass http://$bridge:8080;
+            }
+
+        }
+
+    }
+kind: ConfigMap
+metadata:
+  name: internal-nginx-config
+  namespace: VAR.NAMESPACE
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  annotations:
+    openshift.io/host.generated: 'true'
+  labels:
+    app: nginx-internal
+  name: http-bridge-internal-dev
+  namespace: VAR.NAMESPACE
+spec:
+  host: http-bridge-internal-VAR.NAMESPACE.VAR.WILDCARDSUBDOMAIN
+  port:
+    targetPort: 8080-tcp
+  tls:
+    termination: edge
+  to:
+    kind: Service
+    name: http-bridge-internal
+    weight: 100
+  wildcardPolicy: None
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  annotations:
+    openshift.io/host.generated: 'true'
+  labels:
+    app: nginx-internal
+  name: http-bridge-internal
+  namespace: VAR.NAMESPACE
+spec:
+  host: http-bridge-internal-VAR.NAMESPACE.VAR.WILDCARDSUBDOMAIN
+  port:
+    targetPort: 8080-tcp
+  tls:
+    termination: edge
+  to:
+    kind: Service
+    name: http-bridge-internal
+    weight: 100
+  wildcardPolicy: None
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: internal-nginx-basic-auth-creds
+  namespace: VAR.NAMESPACE
+type: Opaque
+data: {}
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: external-nginx-basic-auth-creds
+  namespace: VAR.NAMESPACE
+type: Opaque
+data: {}
+

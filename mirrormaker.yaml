@@ -1,0 +1,72 @@
+kind: KafkaMirrorMaker2
+apiVersion: kafka.strimzi.io/v1beta2
+metadata:
+  name: mirror-VAR.MIRRORMAKER.CLUSTER1.NAME-VAR.MIRRORMAKER.CLUSTER2.NAME
+  namespace: VAR.NAMESPACE
+spec:
+  template:
+    pod:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: deploymentconfig
+                operator: In
+                values:
+                - nginx-external
+            topologyKey: kubernetes.io/hostname
+  replicas: 0
+  resources:
+    limits:
+      cpu: VAR.MIRRORMAKER.CPU
+      memory: VAR.MIRRORMAKER.MEMORY
+    requests:
+      cpu: VAR.MIRRORMAKER.CPU
+      memory: VAR.MIRRORMAKER.MEMORY
+  connectCluster: VAR.MIRRORMAKER.SOURCECLUSTER
+  clusters:
+    - alias: VAR.MIRRORMAKER.CLUSTER1.NAME
+      bootstrapServers: 'VAR.MIRRORMAKER.CLUSTER1.BOOTSTRAPURL'
+      tls:
+        trustedCertificates:
+        - secretName: VAR.MIRRORMAKER.CLUSTER1.CASECRETNAME
+          certificate: ca.crt
+      authentication:
+        type: scram-sha-512
+        username:  VAR.MIRRORMAKER.CLUSTER1.USERNAME
+        passwordSecret: 
+          secretName: VAR.MIRRORMAKER.CLUSTER1.PASSWORD.SECRET
+          password: password
+    - alias: VAR.MIRRORMAKER.CLUSTER2.NAME
+      bootstrapServers: 'VAR.MIRRORMAKER.CLUSTER2.BOOTSTRAPURL'
+      tls:
+        trustedCertificates:
+        - secretName: VAR.MIRRORMAKER.CLUSTER2.CASECRETNAME
+          certificate: ca.crt
+      authentication:
+        type: scram-sha-512
+        username:  VAR.MIRRORMAKER.CLUSTER2.USERNAME
+        passwordSecret: 
+          secretName: VAR.MIRRORMAKER.CLUSTER2.PASSWORD.SECRET
+          password: password
+      config:
+        config.storage.replication.factor: 3
+        offset.storage.replication.factor: 3
+        status.storage.replication.factor: 3
+  mirrors:
+    - sourceCluster: VAR.MIRRORMAKER.SOURCECLUSTER
+      targetCluster: VAR.MIRRORMAKER.DESTINATIONCLUSTER
+      sourceConnector:
+        config:
+          replication.factor: 3
+          offset-syncs.topic.replication.factor: 3
+          sync.topic.acls.enabled: 'false'
+      heartbeatConnector:
+        config:
+          heartbeats.topic.replication.factor: 3
+      checkpointConnector:
+        config:
+          checkpoints.topic.replication.factor: 3
+      topicsPattern: .*
+      groupsPattern: .*
