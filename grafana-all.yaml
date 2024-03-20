@@ -1,0 +1,93 @@
+# Assume pvc named grafana-data is exist
+# Assume sa named grafana-serviceaccount is exist
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: VAR.NAMESPACE
+  labels:
+    app: strimzi
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: grafana
+  template:
+    metadata:
+      labels:
+        name: grafana
+    spec:
+      serviceAccountName: grafana-serviceaccount
+      containers:
+      - name: grafana
+        image: VAR.GRAFANA.IMAGE.URL
+        ports:
+        - name: grafana
+          containerPort: 3000
+          protocol: TCP
+        volumeMounts:
+        - name: grafana-data
+          mountPath: /var/lib/grafana
+        - name: grafana-logs
+          mountPath: /var/log/grafana
+        - name: grafana-config
+          mountPath: /etc/grafana/provisioning/datasources/datasource.yaml
+          readOnly: true
+          subPath: datasource.yaml
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+          initialDelaySeconds: 15
+          periodSeconds: 20
+      volumes:
+      - name: grafana-data
+        persistentVolumeClaim:
+          claimName:  grafana-data
+      - name: grafana-logs
+        emptyDir: {}
+      - name: grafana-config
+        configMap:
+          name: grafana-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: VAR.NAMESPACE
+  labels:
+    app: strimzi
+spec:
+  ports:
+  - name: grafana
+    port: 3000
+    targetPort: 3000
+    protocol: TCP
+  selector:
+    name: grafana
+  type: ClusterIP
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: grafana
+  namespace: VAR.NAMESPACE
+spec:
+  host: grafana-VAR.NAMESPACE.apps.VAR.WILDCARDSUBDOMAIN
+  to:
+    kind: Service
+    name: grafana
+    weight: 100
+  port:
+    targetPort: grafana
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None

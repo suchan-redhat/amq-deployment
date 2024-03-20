@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: grafana-serviceaccount
+  namespace: VAR.NAMESPACE
+  labels:
+    app: strimzi
