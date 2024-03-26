@@ -1,0 +1,29 @@
+--------- Kafka producer --------- 
+cd bin
+cat <<'EOF' > /tmp/config.properties
+security.protocol=SASL_PLAINTEXT
+sasl.mechanism=SCRAM-SHA-512
+sasl.jaas.config=JAASCONFIG
+EOF
+
+./kafka-console-producer.sh --broker-list amq-streams-kafka-bootstrap:9092 --topic VAR.TOPIC --producer.config  /tmp/config.properties
+
+
+--------- Kafka consumer --------- 
+cd bin
+cat <<'EOF' > /tmp/config.properties
+security.protocol=SASL_PLAINTEXT
+sasl.mechanism=SCRAM-SHA-512
+sasl.jaas.config=VAR.JAASCONFIG
+EOF
+
+
+./kafka-console-consumer.sh --bootstrap-server amq-streams-kafka-bootstrap:9092 --topic VAR.TOPIC --from-beginning --property print.timestamp=true --consumer.config /tmp/config.properties
+
+
+--------- AMQ producer --------- 
+/home/jboss/amq-broker/bin/artemis producer --user VAR.USERNAME --message-count 1 --password VAR.PASSWORD --url tcp://amq-broker-hdls-svc:61616 --message "test" --destination topic://VAR.TOPIC
+
+
+--------- AMQ consumer --------- 
+/home/jboss/amq-broker/bin/artemis consumer --user VAR.USERNAME --message-count 1 --password VAR.PASSWORD --url tcp://amq-broker-hdls-svc:61616 --destination topic://VAR.TOPIC
