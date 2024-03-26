@@ -27,3 +27,47 @@ EOF
 
 --------- AMQ consumer --------- 
 /home/jboss/amq-broker/bin/artemis consumer --user VAR.USERNAME --message-count 1 --password VAR.PASSWORD --url tcp://amq-broker-hdls-svc:61616 --destination topic://VAR.TOPIC
+
+
+curl -X POST http://my-bridge-route-es-kafka-bridge.apps.example.com/consumers/my-group \
+-H 'content-type: application/vnd.kafka.json.v2+json' \
+-d '{
+  "name": "my-consumer",
+  "format": "json",
+  "auto.offset.reset": "earliest",
+  "enable.auto.commit": false
+}'
+
+
+curl -X POST http://my-bridge-route-es-kafka-bridge.apps.example.com/consumers/my-group/instances/my-consumer/subscription \
+-H 'content-type: application/vnd.kafka.json.v2+json' \
+-d '{
+    "topics": [
+        "my-topic"
+    ]
+}'
+
+
+curl -X GET http://my-bridge-route-es-kafka-bridge.apps.example.com/consumers/my-group/instances/my-consumer/records \
+-H 'accept: application/vnd.kafka.json.v2+json'
+
+
+
+
+
+curl -X POST \
+   http://<route-name>.apps.<cluster-name>.<namespace>.com/topics/<topic-name> \
+   -H 'content-type: application/vnd.kafka.json.v2+json' \
+   -d '{
+     "records": [
+        {
+            "key": "key-1",
+            "value": "value-1"
+        },
+        {
+            "key": "key-2",
+            "value": "value-2"
+        }
+    ]
+}'
+
